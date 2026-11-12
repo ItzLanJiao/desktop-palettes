@@ -1,7 +1,6 @@
 // Desktop Palettes: content script in Claude Desktop's React DevTools slot (loaded when REACT_PROFILE=1).
 // Reads palettes.json, which the mod writes when a palette is picked: { id, bg, text, accent, success?, error?, warning? }
 // or {} for Claude's own look, and repaints Claude Desktop's design tokens from it.
-// The colour derivation follows the approach of themes-for-claude by 0toshigami (MIT).
 (() => {
   const read = name => fetch(chrome.runtime.getURL(name), { cache: 'no-store' }).then(r => r.text());
   const root = document.documentElement;

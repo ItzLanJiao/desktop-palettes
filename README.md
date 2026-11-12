@@ -1,16 +1,33 @@
-# Desktop Palettes
+# 🎨 Palette Studio for Claude Desktop
 
-**48 hand-tuned color palettes for the Claude Desktop app's Code tab** — Dracula, Nord, Gruvbox, Tokyo Night,
-Catppuccin, Solarized, Rosé Pine, Synthwave '84, Amber CRT and many more — picked live from a strip above the prompt
-with `/palettes`. A standalone mod: no other theme plugin is needed.
+**78 color palettes for the Claude Desktop app's Code tab**, picked live from a studio strip above the prompt with
+`/palettes`. Keep your favorites, browse by mood, search by name, let the dice choose, or wake up to a new palette
+every day.
 
-The palettes come from the [ccthemes](https://github.com/livlign/ccthemes) gallery, which themes the Claude Code
-*terminal*. Terminal themes cannot touch the window's background or main text (your terminal owns those), so this mod
-gives each palette a full background, keeps the original accent and text colors, and paints the whole desktop app.
+## What's inside
 
-| Dark (38) | Light (10) |
-|---|---|
-| Acid Lime · Amber CRT Retro · Ayu Dark · Bong · Campbell · Catppuccin Mocha · Citrus Ink · Cyberpunk Neon · Dracula Vivid · Driftwood · Eclipse · Everforest Dark · Forge Ember · GitHub Dark · Graphite · Green Phosphor CRT · Gruvbox Dark · Halcyon · High Contrast · Horizon Dark · Kanagawa Wave · Miami Heat · Monokai Pro Spectrum · Nebula Drift · Night Owl Deep · Nord · One Dark Atom · Opaline · Oxblood · Oxocarbon Dark · Patina · Prism · Rosé Pine Main · Solarized Dark · Synthwave '84 Neon · Tokyo Night · Velvet Court · Verdigris | Aubade · Catppuccin Latte · Daybreak · Frostbyte · GitHub Light · Letterpress · Matcha Zen · Porcelain · Rosé Pine Dawn · Solarized Light |
+- **78 palettes**, 58 dark and 20 light, each with its own background, text, accent, and success / warning / error colors.
+- **Wearing now**: a large preview of the current palette with its full color ribbon.
+- **★ Favorites**: star any palette; your favorites get their own tab and last across sessions.
+- **🕘 Recent**: the last 8 palettes you wore.
+- **Moods**: 🔥 Warm · ❄️ Cool · ⚡ Neon · 🌿 Nature · 🌸 Pastel · 📼 Retro · ◐ Mono.
+- **Search** by name or mood.
+- **🎲 Surprise me**: a random palette from whatever you are browsing.
+- **Palette of the day**: switch it on in ⚙ Settings, and each day starts with a new palette, picked from your
+  favorites when you have some.
+- **Compact or large tiles**, and **Claude default** to go back to the app's own colors at any time.
+
+## The palettes
+
+| Mood | Dark | Light |
+|---|---|---|
+| 🔥 Warm | Ayu Mirage · Bong · Flexoki Dark · Forge Ember · Gruvbox Dark · Horizon Dark · Melange · Monokai Pro Spectrum · Oxblood | Ayu Light · Daybreak · Flexoki Light · Gruvbox Light |
+| ❄️ Cool | Ayu Dark · Bluloco Dark · Deep Sea · Eclipse · Halcyon · Iceberg · Material Ocean · Moonlight · Night Owl Deep · Nightfox · Nord · Palenight · Poimandres · Tokyo Night | Frostbyte · Porcelain · Snow Storm · Tokyo Night Day |
+| ⚡ Neon | Acid Lime · Andromeda · Cobalt Two · Cyberpunk Neon · Dracula Vivid · Miami Heat · Nebula Drift · Prism · Sonokai · Synthwave '84 Neon | — |
+| 🌿 Nature | Citrus Ink · Driftwood · Everforest Dark · Kanagawa Wave · Midnight Matcha · Patina · Verdigris | Everforest Light · Kanagawa Lotus · Matcha Zen |
+| 🌸 Pastel | Catppuccin Mocha · Lavender Haze · Opaline · Rosé Pine Main · Velvet Court | Aubade · Catppuccin Latte · Dawnfox · Rosé Pine Dawn · Sakura Milk |
+| 📼 Retro | Amber CRT Retro · Campbell · Green Phosphor CRT · Solarized Dark · Zenburn | Letterpress · Solarized Light |
+| ◐ Mono | Carbonfox · GitHub Dark · Graphite · High Contrast · One Dark Atom · Oxocarbon Dark · Tomorrow Night · Vesper | GitHub Light · One Light |
 
 ## Install
 
@@ -34,43 +51,32 @@ In Claude Desktop you can also open **Settings → Plugins → Add → Add marke
 ## First use
 
 1. In a Claude Code session in Claude Desktop, type `/palettes`. (If it does not show, run `/reload-plugins`.)
-2. The first time, the strip shows an **Install extension** button. Press it. It copies a small content script into
+2. The first time, the studio shows an **Install extension** button. Press it. It copies a small content script into
    Claude Desktop's React DevTools extension slot and, if it is not set yet, sets `REACT_PROFILE=1` for your user
    account so Claude Desktop loads that slot:
    - Windows: `%APPDATA%\Claude\extensions\…` or `%LOCALAPPDATA%\Claude-Data\<id>\extensions\…`, and `setx REACT_PROFILE 1`.
    - macOS: `~/Library/Application Support/Claude/extensions/…`, `launchctl setenv`, plus a LaunchAgent that sets it again at login.
 3. Quit Claude Desktop fully (Windows: also from the tray; macOS: Cmd+Q) and open it again.
-4. Type `/palettes` again and pick a palette from the **Dark** or **Light** tab. It applies within a second, no restart.
-   **Claude default** goes back to the app's own colors.
+4. Type `/palettes` again and pick a palette. It applies within a second, no restart.
 
 ## How the colors are built
 
-Each palette has three core colors: background, text, and accent (the ccthemes `claude` token). The extension derives
-every surface, secondary and muted text (kept at 4.5:1 contrast or better), hover and tint from those three, and
-switches the app between its light and dark parts to match. Success, error and warning colors are carried over too.
-
-Backgrounds: well-known schemes use their canonical editor background (Dracula `#282a36`, Nord `#2e3440`, …); the
-original ccthemes palettes get one derived from their own message background, pushed until the body text reaches
-7:1 contrast. `tools/convert.py` rebuilds `hooks/palettes.ts` from the ccthemes theme files.
+Each palette has three core colors: background, text, and accent. The extension derives every surface, secondary
+and muted text (kept at 4.5:1 contrast or better), hover state and tint from those three, and switches the app between
+its light and dark parts to match. Body text is checked at 7:1 on most dark palettes and at least 4.5:1 everywhere;
+accents at 3:1 or better.
 
 ## Removing it
 
-`/palettes` → **Remove extension** takes out only this mod's files. If nothing else uses the slot, it also clears
-`REACT_PROFILE`. Restart Claude Desktop, then uninstall the plugin.
+`/palettes` → **⚙ Settings** → **Remove extension** takes out only this mod's files. If nothing else uses the slot, it
+also clears `REACT_PROFILE`. Restart Claude Desktop, then uninstall the plugin.
 
 ## Notes
 
 - **Unofficial.** This is a community mod, not made or endorsed by Anthropic. It styles Claude Desktop's own design
   tokens, which a future app update may rename.
 - Windows and macOS only.
-- Can share the extension slot with [themes-for-claude](https://github.com/0toshigami/claude-desktop-themes); use one
-  of them at a time (set the other to its default), or the last one painted wins.
-
-## Credits
-
-- Palettes: [ccthemes](https://github.com/livlign/ccthemes) by the ccthemes contributors (MIT).
-- The extension-slot approach and color derivation follow
-  [claude-desktop-themes](https://github.com/0toshigami/claude-desktop-themes) by 0toshigami (MIT).
+- If another mod also repaints Claude Desktop, use one at a time: the last one painted wins.
 
 ## License
 

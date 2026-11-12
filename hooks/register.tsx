@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Palette } from '../types'
+import type { Mood, Palette, Size, View } from '../types'
 import { PALETTES } from './palettes'
 
 // Claude Desktop loads the extension in its React DevTools slot when REACT_PROFILE=1. The slot lives under its
 // userData: %APPDATA%\Claude or %LOCALAPPDATA%\Claude-Data\<id> on Windows, ~/Library/Application Support/Claude on
-// macOS. Other mods (themes-for-claude among them) may share the slot, so only our own entries go in and come out.
+// macOS. Other mods may share the slot, so only our own entries go in and come out.
 const SLOT = ['extensions', 'fmkadmapgofadopljbjfkapdkoienihi']
 const SCRIPT = 'palettes.js'
 const DATA = 'palettes.json'
@@ -17,12 +17,24 @@ const BY_HAND = {
   macos: 'Run launchctl setenv REACT_PROFILE 1 in Terminal',
 } as const
 
+export const MOODS: Record<Mood, string> = {
+  warm: '🔥 Warm', cool: '❄️ Cool', neon: '⚡ Neon', nature: '🌿 Nature', pastel: '🌸 Pastel', retro: '📼 Retro', mono: '◐ Mono',
+}
+const VIEWS: Record<View, string> = { all: 'All', dark: '🌙 Dark', light: '☀️ Light', favorites: '★ Favorites', recent: '🕘 Recent' }
+const RECENT_MAX = 8
+
 const current = atom({ plugin: 'desktop-palettes', key: 'current' } as const, 'claude')
 type Setup = 'missing' | 'restart' | 'ready'
 const setup = atom({ plugin: 'desktop-palettes', key: 'setup' } as const, 'missing' as Setup)
 const isStripOpen = atom({ plugin: 'desktop-palettes', key: 'isStripOpen' } as const, false)
-type Tab = 'dark' | 'light'
-const tab = atom({ plugin: 'desktop-palettes', key: 'tab' } as const, 'dark' as Tab)
+const view = atom({ plugin: 'desktop-palettes', key: 'view' } as const, 'all' as View)
+const mood = atom({ plugin: 'desktop-palettes', key: 'mood' } as const, 'any' as Mood | 'any')
+const query = atom({ plugin: 'desktop-palettes', key: 'query' } as const, '')
+const size = atom({ plugin: 'desktop-palettes', key: 'size' } as const, 'compact' as Size)
+const favorites = atom({ plugin: 'desktop-palettes', key: 'favorites' } as const, [] as string[])
+const recent = atom({ plugin: 'desktop-palettes', key: 'recent' } as const, [] as string[])
+const daily = atom({ plugin: 'desktop-palettes', key: 'daily' } as const, false)
+const showSettings = atom({ plugin: 'desktop-palettes', key: 'showSettings' } as const, false)
 const confirmRemove = atom({ plugin: 'desktop-palettes', key: 'confirmRemove' } as const, false)
 
 const join = (base: string, ...parts: string[]) => [base, ...parts].join(base.includes('\\') ? '\\' : '/')
@@ -61,7 +73,7 @@ type Manifest = {
 const FRESH: Manifest = {
   manifest_version: 3,
   name: 'Desktop Palettes',
-  version: '0.1.0',
+  version: '0.2.0',
   description: 'Paints the palette picked with /palettes over Claude Desktop. Sits in the React DevTools slot, loaded when REACT_PROFILE=1.',
   content_scripts: [{ matches: ['<all_urls>'], js: [SCRIPT] }],
   web_accessible_resources: [{ resources: [DATA], matches: ['<all_urls>'] }],
@@ -95,6 +107,27 @@ const manifestIn = async ($: EngineInterface, dir: string): Promise<Manifest | u
 export const fileOf = (p: Palette | undefined) =>
   JSON.stringify(p ? { id: p.id, bg: p.bg, text: p.text, accent: p.accent, success: p.success, error: p.error, warning: p.warning } : {})
 
+// the palettes a view, a mood and a search leave, in the order the view keeps
+export const filtered = (v: View, m: Mood | 'any', q: string, favs: string[], recents: string[]) => {
+  const byId = (ids: string[]) => ids.map(id => PALETTES.find(p => p.id === id)).filter((p): p is Palette => !!p)
+  const base = v === 'favorites' ? byId(favs) : v === 'recent' ? byId(recents)
+    : PALETTES.filter(p => v === 'all' || p.base === v)
+  const words = q.trim().toLowerCase()
+  return base.filter(p => (m === 'any' || p.mood === m) && (!words || p.name.toLowerCase().includes(words) || p.mood.includes(words)))
+}
+
+// the same palette all day, a new one the next: from the favorites when there are any
+export const dailyPick = (day: string, favs: string[]) => {
+  const pool = favs.length ? PALETTES.filter(p => favs.includes(p.id)) : PALETTES
+  let h = 2166136261
+  for (const c of day) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  return pool[(h >>> 0) % pool.length]!
+}
+const today = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
 const check = async ($: EngineInterface) => {
   const dir = await slot($)
   const m = dir ? await manifestIn($, dir) : undefined
@@ -111,7 +144,7 @@ const refresh = async ($: EngineInterface) => {
   const js = String(await $.fs.read(`${$.plugin.root}/extension/${SCRIPT}`))
   if (String(await $.fs.read(join(dir, SCRIPT)).catch(() => '')) === js) return
   await $.fs.write(join(dir, SCRIPT), js)
-  $.ui.toast('Desktop Palettes is updated. Restart Claude Desktop to load the new version.')
+  $.ui.toast('Palette Studio is updated. Restart Claude Desktop to load the new version.')
 }
 
 const install = async ($: EngineInterface) => {
@@ -175,12 +208,34 @@ const remove = async ($: EngineInterface) => {
     : `Extension removed.${note} Restart Claude Desktop; then you can uninstall the plugin.`)
 }
 
-const pick = async ($: EngineInterface, p: Palette | undefined) => {
+// favorites, recents and settings last across sessions in the store; the atoms mirror them for drawing
+const saveList = async ($: EngineInterface, key: 'favorites' | 'recent', list: string[]) => {
+  if (key === 'favorites') await update($, favorites, () => list)
+  else await update($, recent, () => list)
+  await $.store.set(key, list)
+}
+const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+
+const pick = async ($: EngineInterface, p: Palette | undefined, quiet = false) => {
   const dir = await slot($)
   if (!dir) return
   await $.fs.write(join(dir, DATA), fileOf(p))
   await update($, current, () => p?.id ?? 'claude')
-  $.ui.toast(p ? `Palette: ${p.name}` : 'Back to Claude\'s own colors')
+  if (p) await saveList($, 'recent', [p.id, ...(await read($, recent)).filter(id => id !== p.id)].slice(0, RECENT_MAX))
+  if (!quiet) $.ui.toast(p ? `${MOODS[p.mood].split(' ')[0]} ${p.name}` : 'Back to Claude\'s own colors')
+}
+
+const toggleFavorite = async ($: EngineInterface, id: string) => {
+  const favs = await read($, favorites)
+  await saveList($, 'favorites', favs.includes(id) ? favs.filter(f => f !== id) : [...favs, id])
+}
+
+const surprise = async ($: EngineInterface) => {
+  const now = await read($, current)
+  const pool = filtered(await read($, view), await read($, mood), await read($, query), await read($, favorites), await read($, recent))
+    .filter(p => p.id !== now)
+  const from = pool.length ? pool : PALETTES.filter(p => p.id !== now)
+  await pick($, from[Math.floor(Math.random() * from.length)])
 }
 
 const mixHex = (a: string, b: string, k: number) =>
@@ -189,35 +244,59 @@ const mixHex = (a: string, b: string, k: number) =>
     return Math.round(x + (y - x) * k).toString(16).padStart(2, '0')
   }).join('')
 
-// a small picture of Claude Desktop in the palette: sidebar, a message, the composer, and the status swatches
+// a small Claude window in the palette: sidebar, messages, a code line, the composer, and the status swatches
 export const preview = (p: Palette, on: boolean) => {
   const side = mixHex(p.bg, p.text, .05), bubble = mixHex(p.bg, p.text, .1), muted = mixHex(p.text, p.bg, .55)
-  const swatches = [p.accent, p.success, p.warning, p.error].filter((c): c is string => !!c)
-    .map((c, i) => `<rect x="${44 + i * 13}" y="44" width="9" height="9" rx="2" fill="${c}"/>`).join('')
-  const ring = on ? `<rect x="1.5" y="1.5" width="117" height="67" rx="8" fill="none" stroke="${p.accent}" stroke-width="3"/>` : ''
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="70" viewBox="0 0 120 70">
-<clipPath id="w"><rect width="120" height="70" rx="8"/></clipPath><g clip-path="url(#w)">
-<rect width="120" height="70" fill="${p.bg}"/>
-<rect width="30" height="70" fill="${side}"/>
-<rect x="5" y="8" width="20" height="4" rx="2" fill="${p.accent}"/>
-<rect x="5" y="17" width="16" height="3" rx="1.5" fill="${muted}"/>
-<rect x="5" y="24" width="18" height="3" rx="1.5" fill="${muted}"/>
-<rect x="74" y="7" width="40" height="11" rx="4" fill="${bubble}"/>
-<rect x="38" y="24" width="60" height="4" rx="2" fill="${p.text}"/>
-<rect x="38" y="32" width="46" height="3" rx="1.5" fill="${muted}"/>
-${swatches}
-<rect x="36" y="56" width="80" height="10" rx="5" fill="${bubble}"/>
-<circle cx="110" cy="61" r="3.5" fill="${p.accent}"/>
+  const code = mixHex(p.bg, p.text, .07)
+  const dots = [p.success, p.warning, p.error].filter((c): c is string => !!c)
+    .map((c, i) => `<circle cx="${100 + i * 7}" cy="9" r="2.4" fill="${c}"/>`).join('')
+  const ring = on ? `<rect x="1.5" y="1.5" width="117" height="73" rx="9" fill="none" stroke="${p.accent}" stroke-width="3"/>` : ''
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="76" viewBox="0 0 120 76">
+<clipPath id="w"><rect width="120" height="76" rx="9"/></clipPath><g clip-path="url(#w)">
+<rect width="120" height="76" fill="${p.bg}"/>
+<rect width="28" height="76" fill="${side}"/>
+<circle cx="9" cy="9" r="3.5" fill="${p.accent}"/>
+<rect x="5" y="18" width="18" height="3" rx="1.5" fill="${muted}"/>
+<rect x="5" y="25" width="14" height="3" rx="1.5" fill="${muted}"/>
+<rect x="5" y="32" width="16" height="3" rx="1.5" fill="${muted}"/>
+${dots}
+<rect x="72" y="15" width="42" height="10" rx="4" fill="${bubble}"/>
+<rect x="35" y="31" width="58" height="3.5" rx="1.75" fill="${p.text}"/>
+<rect x="35" y="38" width="44" height="3" rx="1.5" fill="${muted}"/>
+<rect x="35" y="45" width="76" height="9" rx="2.5" fill="${code}"/>
+<rect x="39" y="48" width="14" height="3" rx="1.5" fill="${p.accent}"/>
+<rect x="56" y="48" width="22" height="3" rx="1.5" fill="${p.success ?? muted}"/>
+<rect x="33" y="61" width="82" height="11" rx="5.5" fill="${bubble}"/>
+<circle cx="109" cy="66.5" r="3.6" fill="${p.accent}"/>
 </g>${ring}</svg>`
+}
+
+// the worn palette, large: its colors as a ribbon under the window
+export const hero = (p: Palette) => {
+  const chips = [p.bg, p.text, p.accent, p.success, p.warning, p.error].filter((c): c is string => !!c)
+  const w = 240 / chips.length
+  return preview(p, false)
+    .replace('width="120" height="76" viewBox="0 0 120 76"', 'width="240" height="172" viewBox="0 0 120 86"')
+    .replace('</svg>', `${chips.map((c, i) => `<rect x="${(i * w) / 2}" y="79" width="${w / 2}" height="7" fill="${c}"/>`).join('')}</svg>`)
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'palettes', description: 'Pick a ccthemes color palette for Claude Desktop' })
+    await $.command.register({ name: 'palettes', description: 'Open Palette Studio: pick a color palette for Claude Desktop' })
     try {
+      const [favs, recents, isDaily, tile] = await Promise.all(['favorites', 'recent', 'daily', 'size'].map(k => $.store.get(k)))
+      await update($, favorites, () => strings(favs))
+      await update($, recent, () => strings(recents))
+      await update($, daily, () => isDaily === true)
+      await update($, size, () => (tile === 'comfy' ? 'comfy' : 'compact'))
       const dir = await slot($)
       const saved = dir ? JSON.parse(String(await $.fs.read(join(dir, DATA)))) : {}
       await update($, current, () => (typeof saved.id === 'string' ? saved.id : 'claude'))
+      // palette of the day: once a day, when the extension is in place
+      if (dir && isDaily === true && (await $.store.get('dailyOn')) !== today()) {
+        await $.store.set('dailyOn', today())
+        await pick($, dailyPick(today(), strings(favs)), true)
+      }
     } catch {}
     return next(e)
   })
@@ -227,12 +306,10 @@ export const register: Register = on => {
     await refresh($).catch(() => {})
     const open = await update($, isStripOpen, o => !o)
     if (open) {
-      const id = await read($, current)
-      const worn = PALETTES.find(p => p.id === id)
-      await update($, tab, t => (worn ? worn.base : t))
       await update($, confirmRemove, () => false)
+      await update($, showSettings, () => false)
     }
-    return { text: open ? 'Palette strip opened above the prompt.' : 'Palette strip closed.' }
+    return { text: open ? 'Palette Studio opened above the prompt.' : 'Palette Studio closed.' }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -240,31 +317,117 @@ export const register: Register = on => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const Svg = 'Svg' in els ? els.Svg : undefined
-    const now = await read($, current)
-    const stage = await read($, setup)
-    const showing = await read($, tab)
-    const asking = await read($, confirmRemove)
+    const Select = 'Select' in els ? els.Select : undefined
+    const Input = 'Input' in els ? els.Input : undefined
+    const [now, stage, v, m, q, tile, favs, recents, isDaily, settings, asking] = await Promise.all([
+      read($, current), read($, setup), read($, view), read($, mood), read($, query), read($, size),
+      read($, favorites), read($, recent), read($, daily), read($, showSettings), read($, confirmRemove),
+    ])
     const os = (await hostOf($))?.os ?? 'windows'
     const worn = PALETTES.find(p => p.id === now)
-    const shown = PALETTES.filter(p => p.base === showing)
-    const count = (b: Tab) => PALETTES.filter(p => p.base === b).length
-    const removeButton = <Button key="remove" label="Remove extension" dimColor onPress={() => update($, confirmRemove, () => true)} />
+    const shown = filtered(v, m, q, favs, recents)
+    const width = tile === 'comfy' ? 150 : 104
+    const star = (id: string) => (favs.includes(id) ? '★' : '☆')
+
     const tileOf = (p: Palette) => (
       <Box key={`tile-${p.id}`} flexDirection="column" alignItems="center" gap="xs">
-        {Svg ? <Svg source={preview(p, p.id === now)} alt={`Preview of ${p.name}`} width={96} /> : null}
-        <Button key={`use-${p.id}`} label={p.id === now ? `✓ ${p.name}` : p.name} dimColor={p.id !== now}
-          variant={p.id === now ? 'primary' : undefined} hover={{ dimColor: false }} onPress={() => pick($, p)} />
+        {Svg ? <Svg source={preview(p, p.id === now)} alt={`Preview of ${p.name}`} width={width} /> : null}
+        <Box flexDirection="row" alignItems="center" gap="xs">
+          <Button key={`use-${p.id}`} label={p.id === now ? `✓ ${p.name}` : p.name} dimColor={p.id !== now}
+            variant={p.id === now ? 'primary' : undefined} hover={{ dimColor: false }} onPress={() => pick($, p)} />
+          <Button key={`fav-${p.id}`} label={star(p.id)} plain dimColor={!favs.includes(p.id)}
+            onPress={() => toggleFavorite($, p.id)} />
+        </Box>
       </Box>
     )
+
+    const heroCard = (
+      <Box key="hero" flexDirection="row" gap={1} alignItems="center" padding={1} borderStyle="round">
+        {Svg && worn ? <Svg source={hero(worn)} alt={`${worn.name}, worn now`} width={180} /> : null}
+        <Box flexDirection="column" gap="xs" flexShrink={1}>
+          <Text dimColor>Wearing now</Text>
+          <Text weight="semibold">{worn ? worn.name : 'Claude (default colors)'}</Text>
+          {worn ? <Text dimColor>{`${MOODS[worn.mood]} · ${worn.base === 'dark' ? 'Dark' : 'Light'}`}</Text> : null}
+          <Box flexDirection="row" gap="xs" flexWrap="wrap">
+            <Button key="surprise" label="🎲 Surprise me" variant="primary" onPress={() => surprise($)} />
+            {worn ? <Button key="hero-fav" label={favs.includes(worn.id) ? '★ Favorited' : '☆ Favorite'}
+              onPress={() => toggleFavorite($, worn.id)} /> : null}
+            <Button key="default" label="Claude default" dimColor={now !== 'claude'} onPress={() => pick($, undefined)} />
+          </Box>
+        </Box>
+      </Box>
+    )
+
+    const filters = (
+      <Box key="filters" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Box flexDirection="row" gap="xs" flexWrap="wrap">
+          {(Object.keys(VIEWS) as View[]).map(k => (
+            <Button key={`view-${k}`} label={k === 'favorites' ? `${VIEWS[k]} (${favs.length})` : VIEWS[k]}
+              variant={k === v ? 'primary' : undefined} dimColor={k !== v} onPress={() => update($, view, () => k)} />
+          ))}
+        </Box>
+        {Select ? (
+          <Select key="mood" label="Mood" value={m}
+            options={[{ value: 'any', label: '✨ Any mood' }, ...(Object.keys(MOODS) as Mood[]).map(k => ({ value: k, label: MOODS[k] }))]}
+            onSelect={x => update($, mood, () => (x in MOODS ? (x as Mood) : 'any'))} />
+        ) : null}
+        {Input ? (
+          <Input key="search" placeholder="Search palettes…" value={q}
+            onInput={x => update($, query, () => x)} onSubmit={x => update($, query, () => x)} />
+        ) : null}
+      </Box>
+    )
+
+    const settingsRow = settings ? (
+      <Box key="settings" flexDirection="column" gap="xs" padding={1} borderStyle="round">
+        <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+          <Button key="daily" label={isDaily ? '☑ Palette of the day' : '☐ Palette of the day'}
+            onPress={async () => {
+              const turnOn = !isDaily
+              await update($, daily, () => turnOn)
+              await $.store.set('daily', turnOn)
+              $.ui.toast(turnOn ? 'A new palette each day, from your favorites when you have some.' : 'Palette of the day is off.')
+            }} />
+          {Select ? (
+            <Select key="size" label="Tiles" value={tile}
+              options={[{ value: 'compact', label: 'Compact' }, { value: 'comfy', label: 'Large' }]}
+              onSelect={x => {
+                const s: Size = x === 'comfy' ? 'comfy' : 'compact'
+                void update($, size, () => s)
+                void $.store.set('size', s)
+              }} />
+          ) : null}
+          <Button key="clear-recent" label="Clear recent" dimColor onPress={() => saveList($, 'recent', [])} />
+          {asking ? null : <Button key="remove" label="Remove extension" dimColor onPress={() => update($, confirmRemove, () => true)} />}
+        </Box>
+        {asking ? (
+          <Box key="confirm" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+            <Text color="warning">Remove the extension? Claude Desktop goes back to its own look after a restart.</Text>
+            <Button key="remove-yes" label="Remove" onPress={() => remove($)} />
+            <Button key="remove-no" label="Cancel" dimColor onPress={() => update($, confirmRemove, () => false)} />
+          </Box>
+        ) : null}
+      </Box>
+    ) : null
+
+    const empty = v === 'favorites' && !favs.length ? 'No favorites yet: press ☆ on any palette to keep it here.'
+      : v === 'recent' && !recents.length ? 'Nothing worn yet.'
+      : 'No palette matches. Try another mood or search.'
+
     return (
       <Box flexDirection="column" gap={1} paddingX={1}>
         <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
-          <Box flexDirection="row" flexShrink={1} gap={1} alignItems="center">
-            <Text weight="semibold">Palettes</Text>
-            <Text dimColor>Wearing</Text>
-            <Text weight="semibold">{worn ? worn.name : 'Claude (default)'}</Text>
+          <Box flexDirection="row" gap={1} alignItems="center" flexShrink={1}>
+            <Text weight="semibold">🎨 Palette Studio</Text>
+            <Text dimColor>{`${PALETTES.length} palettes`}</Text>
           </Box>
-          <Button key="close" role="dismiss" label="Close" onPress={() => update($, isStripOpen, () => false)} />
+          <Box flexDirection="row" gap="xs">
+            {stage === 'missing' ? null : (
+              <Button key="settings-toggle" label={settings ? '⚙ Done' : '⚙ Settings'} dimColor={!settings}
+                onPress={() => update($, showSettings, s => !s)} />
+            )}
+            <Button key="close" role="dismiss" label="Close" onPress={() => update($, isStripOpen, () => false)} />
+          </Box>
         </Box>
         {stage === 'missing' ? (
           <Box key="notice" flexDirection="column" gap="xs" padding={1} borderStyle="round" borderColor="warning">
@@ -279,32 +442,15 @@ export const register: Register = on => {
             <Text color="success" weight="semibold">Installed. Now restart Claude Desktop</Text>
             <Text>{`Quit Claude Desktop fully (${QUIT[os]}), open it again, then type /palettes.`}</Text>
             <Text dimColor>{`Still nothing after a restart? ${BY_HAND[os]}, then restart again.`}</Text>
-            <Box flexDirection="row" justifyContent="flex-end">{asking ? null : removeButton}</Box>
-          </Box>
-        ) : (
-          <Box key="tabs" flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
-            <Box flexDirection="row" gap="xs">
-              {(['dark', 'light'] as Tab[]).map(k => (
-                <Button key={`tab-${k}`} label={`${k === 'dark' ? 'Dark' : 'Light'} (${count(k)})`}
-                  variant={k === showing ? 'primary' : undefined} dimColor={k !== showing} onPress={() => update($, tab, () => k)} />
-              ))}
-              <Button key="default" label={now === 'claude' ? '✓ Claude default' : 'Claude default'} dimColor={now !== 'claude'}
-                onPress={() => pick($, undefined)} />
-            </Box>
-            {asking ? null : removeButton}
-          </Box>
-        )}
-        {asking ? (
-          <Box key="confirm" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
-            <Text color="warning">Remove the extension? Claude Desktop goes back to its own look after a restart.</Text>
-            <Button key="remove-yes" label="Remove" onPress={() => remove($)} />
-            <Button key="remove-no" label="Cancel" dimColor onPress={() => update($, confirmRemove, () => false)} />
           </Box>
         ) : null}
+        {settingsRow}
+        {stage === 'ready' ? heroCard : null}
+        {stage === 'ready' ? filters : null}
         {stage === 'ready' ? (
-          <Box key="tiles" flexDirection="row" flexWrap="wrap" gap={1}>
-            {shown.map(tileOf)}
-          </Box>
+          shown.length ? (
+            <Box key="tiles" flexDirection="row" flexWrap="wrap" gap={1}>{shown.map(tileOf)}</Box>
+          ) : <Text key="empty" dimColor>{empty}</Text>
         ) : null}
       </Box>
     )

@@ -1,5 +1,14 @@
 {
   "name": "desktop-palettes",
-  "owner": { "name": "ItzLanJiao" },
-  "plugins": [{ "name": "desktop-palettes", "source": "./", "description": "48 ccthemes color palettes for Claude Desktop's Code tab, picked with /palettes" }]
+  "owner": {
+    "name": "ItzLanJiao"
+  },
+  "description": "Palette Studio: color palettes for the Claude Desktop app",
+  "plugins": [
+    {
+      "name": "desktop-palettes",
+      "source": "./",
+      "description": "Palette Studio: 78 color palettes for Claude Desktop's Code tab, opened with /palettes"
+    }
+  ]
 }
