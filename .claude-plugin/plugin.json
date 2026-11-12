@@ -1,0 +1,9 @@
+{
+  "name": "desktop-palettes",
+  "version": "0.1.0",
+  "description": "48 ccthemes color palettes (Dracula, Nord, Gruvbox, Tokyo Night, Catppuccin...) for Claude Desktop's Code tab, picked from a strip above the prompt with /palettes",
+  "author": { "name": "ItzLanJiao" },
+  "license": "MIT",
+  "keywords": ["themes", "palettes", "colors", "claude-desktop"],
+  "types": "./types/index.d.ts"
+}

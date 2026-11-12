@@ -1,0 +1,5 @@
+{
+  "name": "desktop-palettes",
+  "owner": { "name": "ItzLanJiao" },
+  "plugins": [{ "name": "desktop-palettes", "source": "./", "description": "48 ccthemes color palettes for Claude Desktop's Code tab, picked with /palettes" }]
+}
