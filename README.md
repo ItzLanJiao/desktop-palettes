@@ -56,6 +56,7 @@ In Claude Desktop you can also open **Settings → Plugins → Add → Add marke
    account so Claude Desktop loads that slot:
    - Windows: `%APPDATA%\Claude\extensions\…` or `%LOCALAPPDATA%\Claude-Data\<id>\extensions\…`, and `setx REACT_PROFILE 1`.
    - macOS: `~/Library/Application Support/Claude/extensions/…`, `launchctl setenv`, plus a LaunchAgent that sets it again at login.
+   - Linux: `~/.config/Claude/extensions/…`, `systemctl --user set-environment`, plus `~/.config/environment.d/desktop-palettes.conf` that sets it again at login.
 3. Quit Claude Desktop fully (Windows: also from the tray; macOS: Cmd+Q) and open it again.
 4. Type `/palettes` again and pick a palette. It applies within a second, no restart.
 
@@ -75,7 +76,7 @@ also clears `REACT_PROFILE`. Restart Claude Desktop, then uninstall the plugin.
 
 - **Unofficial.** This is a community mod, not made or endorsed by Anthropic. It styles Claude Desktop's own design
   tokens, which a future app update may rename.
-- Windows and macOS only.
+- Windows, macOS and Linux (systemd desktops such as GNOME and KDE).
 - If another mod also repaints Claude Desktop, use one at a time: the last one painted wins.
 
 ## License
