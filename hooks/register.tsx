@@ -6,15 +6,19 @@ import { PALETTES } from './palettes'
 
 // Claude Desktop loads the extension in its React DevTools slot when REACT_PROFILE=1. The slot lives under its
 // userData: %APPDATA%\Claude or %LOCALAPPDATA%\Claude-Data\<id> on Windows, ~/Library/Application Support/Claude on
-// macOS. Other mods may share the slot, so only our own entries go in and come out.
+// macOS, $XDG_CONFIG_HOME/Claude (~/.config/Claude) on Linux. Other mods may share the slot, so only our own entries
+// go in and come out.
 const SLOT = ['extensions', 'fmkadmapgofadopljbjfkapdkoienihi']
 const SCRIPT = 'palettes.js'
 const DATA = 'palettes.json'
 const AGENT = 'com.github.desktop-palettes'
-const QUIT = { windows: 'also from the tray', macos: 'Cmd+Q' } as const
+// Linux: systemd --user reads environment.d at login and hands it to the desktop session and the apps it starts
+const ENV_D = 'desktop-palettes.conf'
+const QUIT = { windows: 'also from the tray', macos: 'Cmd+Q', linux: 'also from the tray' } as const
 const BY_HAND = {
   windows: 'Set the user environment variable REACT_PROFILE=1 by hand',
   macos: 'Run launchctl setenv REACT_PROFILE 1 in Terminal',
+  linux: 'Run systemctl --user set-environment REACT_PROFILE=1 in a terminal, or log out and in',
 } as const
 
 export const MOODS: Record<Mood, string> = {
@@ -49,7 +53,7 @@ const claudeData = async ($: EngineInterface) => {
   return undefined
 }
 
-type Host = { os: 'windows' | 'macos'; home: string; userData: string }
+type Host = { os: 'windows' | 'macos' | 'linux'; home: string; userData: string }
 const hostOf = async ($: EngineInterface): Promise<Host | undefined> => {
   const appData = await $.env.get('APPDATA')
   if (appData) {
@@ -57,9 +61,14 @@ const hostOf = async ($: EngineInterface): Promise<Host | undefined> => {
     return { os: 'windows', home: (await $.env.get('USERPROFILE')) ?? '', userData }
   }
   const home = await $.env.get('HOME')
-  const userData = home && join(home, 'Library', 'Application Support', 'Claude')
-  return userData && (await $.fs.exists(userData)) ? { os: 'macos', home: home!, userData } : undefined
+  if (!home) return undefined
+  const mac = join(home, 'Library', 'Application Support', 'Claude')
+  if (await $.fs.exists(mac)) return { os: 'macos', home, userData: mac }
+  const linux = join((await $.env.get('XDG_CONFIG_HOME')) || join(home, '.config'), 'Claude')
+  return (await $.fs.exists(join(linux, 'Local State'))) ? { os: 'linux', home, userData: linux } : undefined
 }
+const envDir = async ($: EngineInterface, home: string) =>
+  join((await $.env.get('XDG_CONFIG_HOME')) || join(home, '.config'), 'environment.d')
 const slot = async ($: EngineInterface) => {
   const host = await hostOf($)
   return host && join(host.userData, ...SLOT)
@@ -150,14 +159,19 @@ const refresh = async ($: EngineInterface) => {
 const install = async ($: EngineInterface) => {
   const host = await hostOf($)
   const dir = await slot($)
-  if (!host || !dir) return $.ui.toast('Only Windows and macOS are supported for now.')
+  if (!host || !dir) return $.ui.toast('Claude Desktop\'s data folder was not found on this computer.')
   await $.fs.write(join(dir, SCRIPT), String(await $.fs.read(`${$.plugin.root}/extension/${SCRIPT}`)))
   if (!(await $.fs.exists(join(dir, DATA)))) await $.fs.write(join(dir, DATA), '{}')
   await $.fs.write(join(dir, 'manifest.json'), JSON.stringify(withOurs(await manifestIn($, dir)), null, 2))
   let exitCode = 0
   if ((await $.env.get('REACT_PROFILE')) !== '1') {
     if (host.os === 'windows') exitCode = (await $.process.run(['setx', 'REACT_PROFILE', '1'])).exitCode ?? 1
-    else {
+    else if (host.os === 'linux') {
+      await $.fs.write(join(await envDir($, host.home), ENV_D), 'REACT_PROFILE=1\n')
+      // reaches apps the desktop starts from now on, without logging out
+      exitCode = (await $.process.run(['systemctl', '--user', 'set-environment', 'REACT_PROFILE=1'])).exitCode ?? 1
+      await $.process.run(['dbus-update-activation-environment', '--systemd', 'REACT_PROFILE=1']).catch(() => undefined)
+    } else {
       await $.fs.write(join(host.home, 'Library', 'LaunchAgents', `${AGENT}.plist`), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -196,6 +210,9 @@ const remove = async ($: EngineInterface) => {
     if (host.os === 'windows') {
       await run(['setx', 'REACT_PROFILE', ''])
       await run(['reg', 'delete', 'HKCU\\Environment', '/v', 'REACT_PROFILE', '/f'])
+    } else if (host.os === 'linux') {
+      await run(['rm', '-f', '--', join(await envDir($, host.home), ENV_D)])
+      await run(['systemctl', '--user', 'unset-environment', 'REACT_PROFILE'])
     } else {
       await run(['launchctl', 'unsetenv', 'REACT_PROFILE'])
       await run(['rm', '-f', join(host.home, 'Library', 'LaunchAgents', `${AGENT}.plist`)])
