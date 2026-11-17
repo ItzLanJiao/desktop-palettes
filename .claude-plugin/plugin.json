@@ -1,6 +1,6 @@
 {
   "name": "desktop-palettes",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Palette Studio for Claude Desktop: 78 color palettes with favorites, moods, search, palette of the day and a surprise button, opened with /palettes",
   "author": { "name": "ItzLanJiao" },
   "license": "MIT",

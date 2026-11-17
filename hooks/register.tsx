@@ -73,7 +73,7 @@ type Manifest = {
 const FRESH: Manifest = {
   manifest_version: 3,
   name: 'Desktop Palettes',
-  version: '0.2.0',
+  version: '0.2.1',
   description: 'Paints the palette picked with /palettes over Claude Desktop. Sits in the React DevTools slot, loaded when REACT_PROFILE=1.',
   content_scripts: [{ matches: ['<all_urls>'], js: [SCRIPT] }],
   web_accessible_resources: [{ resources: [DATA], matches: ['<all_urls>'] }],

@@ -46,7 +46,13 @@
     if (ok(t.success)) vars.push(['success-100', hsl(rgb(t.success))], ['success-000', hsl(rgb(t.success))]);
     if (ok(t.error)) vars.push(['danger-100', hsl(rgb(t.error))], ['danger-000', hsl(rgb(t.error))]);
     if (ok(t.warning)) vars.push(['warning-100', hsl(rgb(t.warning))]);
-    vars.push(['desktop-palette-side', at(bg, tx, .04)]);
+    // the sidebar card, its selected and hovered rows, and popovers have colours of their own in Claude Desktop
+    const side = at(bg, tx, .05);
+    vars.push(['desktop-palette-side', side], ['cds-fizzy-lake-color-sidebar', side], ['df-sidebar-bg', side],
+      ['df-web-sidebar-bg', side], ['cds-surface-popover', at(bg, tx, .1)],
+      ['cds-fill-ghost-selected', rgba(mix(tx, ac, .5), .16)], ['cds-fill-ghost-hover', rgba(tx, .07)],
+      ['cds-alpha-1', rgba(tx, .07)], ['cds-alpha-2', rgba(tx, .14)]);
+    [0, .05, .09, .13, .17, .21, .25].forEach((k, i) => vars.push([`df-z${i}`, hsl(mix(bg, tx, k))]));
     return vars;
   };
 
